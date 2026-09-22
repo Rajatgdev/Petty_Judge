@@ -29,6 +29,7 @@ class Room:
     sockets: dict = field(default_factory=lambda: {"plaintiff": None, "defendant": None})
     verdict: dict = field(default_factory=dict)  # filled once judged
     judging: bool = False
+    summary: str = ""  # AI one-liner of the complaint, shown to the defendant
 
     def occupied_seats(self):
         return [s for s in ("plaintiff", "defendant") if self.sockets[s] is not None]
@@ -53,6 +54,7 @@ class Room:
             },
             "judging": self.judging,
             "verdict": self.verdict or None,
+            "summary": self.summary or None,
         }
 
 

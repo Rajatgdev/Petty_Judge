@@ -52,20 +52,35 @@
     </div>
   </section>
 
-  <!-- ============ SCREEN: WAITING (host) ============ -->
-  <section class="screen screen--waiting" data-screen="waiting" hidden>
-    <p class="docket" id="waiting-docket">CASE FILED</p>
-    <h2 class="screen__title">Court is in recess</h2>
-    <p class="screen__sub" id="waiting-sub">Awaiting the accused. Send them the summons.</p>
+  <!-- ============ SCREEN: COURTROOM (both parties, fills in live) ============ -->
+  <section class="screen screen--courtroom" data-screen="courtroom" hidden>
+    <p class="docket" id="courtroom-docket">COURT IN SESSION</p>
+    <h2 class="screen__title">The courtroom</h2>
 
-    <div class="summons">
-      <div class="summons__link" id="share-link" role="textbox" aria-readonly="true"></div>
-      <button id="copy-link" class="btn btn--brass">Copy the summons</button>
+    <div class="bench">
+      <div class="bench__seal" aria-hidden="true">⚖</div>
+      <p class="bench__line" id="bench-line">Awaiting the accused. Hand them the summons.</p>
     </div>
 
-    <div class="clerk-note" id="waiting-presence">
-      <span class="dot-flicker" aria-hidden="true"><i></i><i></i><i></i></span>
-      The bailiff is watching the door…
+    <div class="podiums">
+      <div class="podium-slot podium-slot--filled" id="slot-plaintiff">
+        <p class="podium-slot__role">PLAINTIFF</p>
+        <p class="podium-slot__name" id="cr-p-name">—</p>
+        <p class="podium-slot__status" id="cr-p-status">Present</p>
+      </div>
+      <div class="podium-slot podium-slot--empty" id="slot-defendant">
+        <p class="podium-slot__role">DEFENDANT</p>
+        <p class="podium-slot__name" id="cr-d-name">Empty seat</p>
+        <p class="podium-slot__status" id="cr-d-status">
+          <span class="dot-flicker" aria-hidden="true"><i></i><i></i><i></i></span> awaiting
+        </p>
+      </div>
+    </div>
+
+    <div class="summons" id="summons-box">
+      <p class="field__label">Summons — send this to the accused</p>
+      <div class="summons__link" id="share-link" role="textbox" aria-readonly="true"></div>
+      <button id="copy-link" class="btn btn--brass">Copy the summons</button>
     </div>
   </section>
 
@@ -73,7 +88,11 @@
   <section class="screen screen--join" data-screen="join" hidden>
     <p class="docket">SUMMONS SERVED</p>
     <h2 class="screen__title">You've been<br>summoned</h2>
-    <p class="screen__sub" id="join-sub">A complaint has been filed against you. State your side before the court rules.</p>
+    <div class="accusation" id="accusation">
+      <p class="accusation__label">THE CHARGE AGAINST YOU</p>
+      <p class="accusation__text" id="accusation-text">Reading the complaint…</p>
+    </div>
+    <p class="screen__sub" id="join-sub">State your side before the court rules.</p>
     <label class="field">
       <span class="field__label">Your name, for the record</span>
       <input id="guest-name" class="input" type="text" maxlength="40" placeholder="e.g. Sam" autocomplete="off">

@@ -43,7 +43,9 @@ $("file-case").addEventListener("click", async () => {
   const link = `${location.origin}/r/${room_id}`;
   $("share-link").textContent = link;
   history.replaceState({}, "", `/r/${room_id}`);
-  show("waiting");
+  // fill our own podium immediately
+  $("cr-p-name").textContent = name || "The Plaintiff";
+  show("courtroom");
   joinRoom(room_id);
 });
 
@@ -62,15 +64,19 @@ $("copy-link").addEventListener("click", async () => {
 if (pathMatch) {
   roomId = pathMatch[1];
   show("join");
+  // Connect right away (before submitting) so we receive the room_state that
+  // carries the AI summary of what we're accused of.
+  joinRoom(roomId);
+
   $("enter-court").addEventListener("click", () => {
     const name = $("guest-name").value.trim();
     const kase = $("guest-case").value.trim();
     if (!kase) { $("guest-case").focus(); return; }
+    // fill our own podium, then submit over the already-open socket
+    $("cr-d-name").textContent = name || "The Defendant";
     pendingSubmit = { name, case: kase };
-    joinRoom(roomId);
-    show("waiting");
-    $("waiting-sub").textContent = "Statement filed. Waiting on the court…";
-    $("share-link").parentElement.style.display = "none"; // guest doesn't need the link box
+    if (room && !submitted) { room.send({ t: "submit", ...pendingSubmit }); submitted = true; }
+    show("courtroom");
   });
 }
 
@@ -89,8 +95,8 @@ function joinRoom(id) {
     },
     onMessage(msg) { handle(msg); },
     onReconnecting() {
-      const note = $("waiting-presence");
-      if (note && !verdictShown) note.childNodes[note.childNodes.length - 1].textContent = " Reconnecting to chambers…";
+      const bench = $("bench-line");
+      if (bench && !verdictShown) bench.textContent = "Reconnecting to chambers…";
     },
   });
 }
@@ -108,22 +114,55 @@ function handle(msg) {
   if (msg.t === "room_state") {
     const s = msg.state;
 
+    // Defendant, still on the join screen: show what they're accused of.
+    if (s.summary && !submitted) {
+      const el = $("accusation-text");
+      if (el) el.textContent = s.summary;
+    }
+
     if (s.verdict && !verdictShown) { renderVerdict(s.verdict); return; }
     if (s.judging && !verdictShown) { show("deliberating"); animateGavel(); return; }
 
-    // still waiting — update presence text
-    if (!verdictShown && submitted) {
-      const other = mySeat === "plaintiff" ? "defendant" : "plaintiff";
-      const present = s.seats[other] && s.seats[other].present;
-      const theirSubmitted = s.seats[other] && s.seats[other].submitted;
-      const note = $("waiting-presence");
-      if (note) {
-        const txt = present
-          ? (theirSubmitted ? " Both statements are in. Approaching the bench…" : " The other party has entered. Awaiting their statement…")
-          : " The bailiff is watching the door…";
-        note.childNodes[note.childNodes.length - 1].textContent = txt;
-      }
-    }
+    // Keep the courtroom podiums in sync with who's present + submitted.
+    updateCourtroom(s);
+  }
+}
+
+function updateCourtroom(s) {
+  if (verdictShown) return;
+  const p = s.seats.plaintiff, d = s.seats.defendant;
+
+  if (p && p.name) $("cr-p-name").textContent = p.name;
+  if (d && d.name) $("cr-d-name").textContent = d.name;
+
+  // plaintiff status
+  $("cr-p-status").textContent = p && p.submitted ? "Case filed" : (p && p.present ? "Present" : "Away");
+
+  // defendant slot flips from empty to filled when they arrive
+  const dSlot = $("slot-defendant");
+  if (d && d.present) {
+    dSlot.classList.remove("podium-slot--empty");
+    dSlot.classList.add("podium-slot--filled");
+    if (!d.name) $("cr-d-name").textContent = "The Defendant";
+    $("cr-d-status").textContent = d.submitted ? "Defense filed" : "Present, preparing…";
+  } else {
+    dSlot.classList.add("podium-slot--empty");
+    dSlot.classList.remove("podium-slot--filled");
+    $("cr-d-name").textContent = "Empty seat";
+    $("cr-d-status").innerHTML = '<span class="dot-flicker" aria-hidden="true"><i></i><i></i><i></i></span> awaiting';
+  }
+
+  // bench line + hide the summons once the defendant is present
+  const bench = $("bench-line");
+  const summons = $("summons-box");
+  if (d && d.present) {
+    if (summons) summons.style.display = "none";
+    if (bench) bench.textContent = (p && p.submitted && d.submitted)
+      ? "Both statements are in. Approaching the bench…"
+      : "Both parties present. Awaiting statements…";
+  } else {
+    if (summons) summons.style.display = "";
+    if (bench) bench.textContent = "Awaiting the accused. Hand them the summons.";
   }
 }
 

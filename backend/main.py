@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 
 from rooms import manager
 from jev import judge_case
+from summary import summarise_complaint
 
 app = FastAPI(title="Petty Judge API")
 
@@ -97,6 +98,14 @@ async def room_ws(ws: WebSocket, room_id: str):
                 room.seats[seat]["name"] = name
                 room.seats[seat]["case"] = case
                 room.seats[seat]["submitted"] = True
+
+                # When the plaintiff files, summarise the complaint so the
+                # defendant sees the topic when they open the link. Best-effort:
+                # summarise_complaint never raises, so a failure just leaves the
+                # generic fallback and the flow is unaffected.
+                if seat == "plaintiff" and not room.summary:
+                    room.summary = await summarise_complaint(name, case)
+
                 await _broadcast(room)
 
                 if room.both_submitted() and not room.judging and not room.verdict:

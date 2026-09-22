@@ -189,6 +189,52 @@ body {
 .dot-flicker i:nth-child(3) { animation-delay: .4s; }
 @keyframes flick { 0%,100%{opacity:.25} 50%{opacity:1} }
 
+/* ---------- courtroom (two podiums) ---------- */
+.bench {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--oxblood); color: var(--paper);
+  border-radius: 4px; padding: 16px 18px;
+  box-shadow: 2px 3px 0 rgba(0,0,0,0.25);
+}
+.bench__seal { font-size: 1.8rem; color: var(--brass); }
+.bench__line { margin: 0; font-size: 1rem; line-height: 1.4; }
+
+.podiums { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 480px) { .podiums { grid-template-columns: 1fr; } }
+.podium-slot {
+  border: 1px solid rgba(33,27,24,0.2); border-radius: 4px;
+  padding: 16px; background: var(--paper);
+  box-shadow: 2px 3px 0 rgba(33,27,24,0.15);
+  transition: opacity .2s;
+}
+.podium-slot--empty { opacity: 0.55; border-style: dashed; background: transparent; }
+.podium-slot--empty .podium-slot__name { color: var(--paper-2); }
+.podium-slot__role {
+  font-family: var(--body); font-size: 10px; letter-spacing: 0.14em;
+  color: var(--oxblood); margin: 0 0 6px;
+}
+.podium-slot__name { font-family: var(--display); font-size: 1.4rem; margin: 0 0 4px; color: var(--ink); }
+.podium-slot--empty .podium-slot__role { color: var(--paper-2); }
+.podium-slot__status {
+  font-family: var(--body); font-size: 12px; color: var(--felt); margin: 0;
+  display: flex; align-items: center; gap: 6px;
+}
+.podium-slot--empty .podium-slot__status { color: var(--paper-2); }
+
+.summons .field__label { color: var(--oxblood); margin: 0; }
+
+/* ---------- accusation (defendant's join screen) ---------- */
+.accusation {
+  background: var(--cream); border: 1px solid rgba(167,58,50,0.4);
+  border-left: 4px solid var(--seal-red);
+  border-radius: 3px; padding: 14px 16px;
+}
+.accusation__label {
+  font-family: var(--body); font-size: 10px; letter-spacing: 0.16em;
+  color: var(--seal-red); margin: 0 0 6px;
+}
+.accusation__text { font-family: var(--display); font-size: 1.15rem; line-height: 1.4; margin: 0; color: var(--ink); }
+
 /* ---------- deliberating ---------- */
 .screen--deliberating { align-items: center; text-align: center; }
 .gavel { color: var(--brass); }
