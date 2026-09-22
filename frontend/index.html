@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Petty Judge — Night Court</title>
+<meta name="description" content="A small-claims court for petty disputes. State your case. Let the machine decide who's worse.">
+<meta property="og:title" content="Petty Judge — Night Court">
+<meta property="og:description" content="Someone has filed a petty complaint against you. Enter the courtroom and state your case.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="/og/lobby.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Petty Judge — Night Court">
+<meta name="twitter:description" content="A case awaits. State your side.">
+<meta name="twitter:image" content="/og/lobby.png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<main id="app">
+
+  <!-- ============ SCREEN: LANDING ============ -->
+  <section class="screen screen--landing" data-screen="landing">
+    <div class="masthead">
+      <div class="seal" aria-hidden="true">
+        <svg viewBox="0 0 100 100" width="72" height="72">
+          <circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="2"/>
+          <circle cx="50" cy="50" r="38" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 3"/>
+          <path d="M50 28 L54 44 L50 40 L46 44 Z" fill="currentColor"/>
+          <rect x="34" y="52" width="32" height="4" fill="currentColor"/>
+          <rect x="38" y="60" width="24" height="3" fill="currentColor"/>
+        </svg>
+      </div>
+      <h1 class="court-title">Petty Night Court</h1>
+      <p class="tagline">Small claims. Large egos. Instant verdicts.</p>
+    </div>
+
+    <div class="podium">
+      <label class="field">
+        <span class="field__label">Your name, for the record</span>
+        <input id="host-name" class="input" type="text" maxlength="40" placeholder="e.g. Alex" autocomplete="off">
+      </label>
+      <label class="field">
+        <span class="field__label">State your complaint</span>
+        <textarea id="host-case" class="input input--area" maxlength="1500" rows="4" placeholder="They NEVER do the dishes and act like I'm the crazy one…"></textarea>
+      </label>
+      <button id="file-case" class="btn btn--primary">File the case &amp; summon the accused</button>
+      <p class="fine-print">You'll get a link to send them. Two people, one verdict.</p>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: WAITING (host) ============ -->
+  <section class="screen screen--waiting" data-screen="waiting" hidden>
+    <p class="docket" id="waiting-docket">CASE FILED</p>
+    <h2 class="screen__title">Court is in recess</h2>
+    <p class="screen__sub" id="waiting-sub">Awaiting the accused. Send them the summons.</p>
+
+    <div class="summons">
+      <div class="summons__link" id="share-link" role="textbox" aria-readonly="true"></div>
+      <button id="copy-link" class="btn btn--brass">Copy the summons</button>
+    </div>
+
+    <div class="clerk-note" id="waiting-presence">
+      <span class="dot-flicker" aria-hidden="true"><i></i><i></i><i></i></span>
+      The bailiff is watching the door…
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: JOINING (defendant lands here) ============ -->
+  <section class="screen screen--join" data-screen="join" hidden>
+    <p class="docket">SUMMONS SERVED</p>
+    <h2 class="screen__title">You've been<br>summoned</h2>
+    <p class="screen__sub" id="join-sub">A complaint has been filed against you. State your side before the court rules.</p>
+    <label class="field">
+      <span class="field__label">Your name, for the record</span>
+      <input id="guest-name" class="input" type="text" maxlength="40" placeholder="e.g. Sam" autocomplete="off">
+    </label>
+    <label class="field">
+      <span class="field__label">Your defense</span>
+      <textarea id="guest-case" class="input input--area" maxlength="1500" rows="4" placeholder="That's not what happened AT ALL…"></textarea>
+    </label>
+    <button id="enter-court" class="btn btn--primary">Enter the courtroom</button>
+  </section>
+
+  <!-- ============ SCREEN: DELIBERATING ============ -->
+  <section class="screen screen--deliberating" data-screen="deliberating" hidden>
+    <div class="gavel" aria-hidden="true">
+      <svg viewBox="0 0 120 120" width="120" height="120">
+        <g id="gavel-head">
+          <rect x="30" y="30" width="44" height="24" rx="3" fill="currentColor" transform="rotate(-35 52 42)"/>
+        </g>
+        <rect x="54" y="52" width="8" height="46" rx="4" fill="currentColor" transform="rotate(-35 58 75)"/>
+        <rect x="40" y="100" width="48" height="8" rx="4" fill="currentColor"/>
+      </svg>
+    </div>
+    <h2 class="screen__title">The court is<br>deliberating</h2>
+    <p class="screen__sub">Weighing the pettiness. Filing the charges.</p>
+  </section>
+
+  <!-- ============ SCREEN: VERDICT ============ -->
+  <section class="screen screen--verdict" data-screen="verdict" hidden>
+    <article class="verdict-card" id="verdict-card">
+      <header class="vc__head">
+        <div class="vc__seal" aria-hidden="true">⚖</div>
+        <p class="vc__case" id="vc-case">CASE ██-PETTY</p>
+      </header>
+
+      <div class="vc__stamp" id="vc-stamp">
+        <span id="vc-verdict-line">GUILTY</span>
+      </div>
+
+      <div class="vc__jury">
+        <p class="vc__jury-label">The jury is</p>
+        <div class="meter meter--jury">
+          <div class="meter__fill" id="jury-fill"></div>
+        </div>
+        <p class="vc__jury-num"><span id="jury-num">0</span>% sure</p>
+      </div>
+
+      <div class="vc__parties">
+        <div class="party" id="party-plaintiff">
+          <p class="party__name" id="p-name">Plaintiff</p>
+          <p class="party__role">PLAINTIFF</p>
+          <div class="meter meter--petty"><div class="meter__fill" id="p-petty-fill"></div></div>
+          <p class="party__petty"><span id="p-petty-num">0</span>% petty · <span id="p-petty-label"></span></p>
+          <ul class="charges" id="p-charges"></ul>
+        </div>
+        <div class="party" id="party-defendant">
+          <p class="party__name" id="d-name">Defendant</p>
+          <p class="party__role">DEFENDANT</p>
+          <div class="meter meter--petty"><div class="meter__fill" id="d-petty-fill"></div></div>
+          <p class="party__petty"><span id="d-petty-num">0</span>% petty · <span id="d-petty-label"></span></p>
+          <ul class="charges" id="d-charges"></ul>
+        </div>
+      </div>
+
+      <div class="vc__sentence">
+        <p class="vc__sentence-label">SENTENCE</p>
+        <p id="vc-sentence"></p>
+      </div>
+
+      <footer class="vc__foot">
+        <span id="vc-damages">$0 in emotional damages</span>
+        <span class="vc__brand">PETTY NIGHT COURT</span>
+      </footer>
+    </article>
+
+    <div class="verdict-actions">
+      <button id="share-verdict" class="btn btn--brass">Share the ruling</button>
+      <button id="new-case" class="btn btn--ghost">File a new case</button>
+    </div>
+    <p class="fine-print">Screenshot the ruling and drop it in the group chat.</p>
+  </section>
+
+  <!-- ============ SCREEN: DISMISSED / DEAD ROOM ============ -->
+  <section class="screen screen--dismissed" data-screen="dismissed" hidden>
+    <div class="vc__stamp vc__stamp--dismiss"><span>DISMISSED</span></div>
+    <p class="screen__sub" id="dismissed-reason">This case has been thrown out.</p>
+    <button id="dismissed-new" class="btn btn--primary">File a new case</button>
+  </section>
+
+</main>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

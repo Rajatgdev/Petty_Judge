@@ -1,1 +1,15 @@
+# python
+__pycache__/
+*.pyc
+*.venv/
+*.env
+# node
+node_modules/
+dist/
+frontend/.env
+# misc
 *.DS_Store
+
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
