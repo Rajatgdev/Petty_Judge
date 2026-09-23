@@ -25,6 +25,8 @@ let joined = false;         // sent our name
 let verdictShown = false;
 let renderedCount = 0;      // transcript messages already drawn
 let lastJuryP = 50;
+const restedShown = { plaintiff: false, defendant: false };
+let lastVerdict = null;
 
 const pathMatch = location.pathname.match(/^\/r\/([A-Za-z0-9_-]+)$/);
 
@@ -151,7 +153,7 @@ function updateTrial(s) {
   if (s.summary && s.summary.topic) $("trial-topic").textContent = s.summary.topic;
 
   // jury bar
-  setJury(s.jury.plaintiff_pct);
+  setJury(s.jury.plaintiff_pct, s.jury.reason);
 
   // transcript — append only new messages
   const tr = $("transcript");
@@ -165,6 +167,20 @@ function updateTrial(s) {
     if (!reduceMotion) { el.style.opacity = 0; animate(el, { opacity: [0, 1], y: [8, 0] }, { duration: 0.35 }); }
   }
   if (s.transcript.length !== renderedCount) { renderedCount = s.transcript.length; tr.scrollTop = tr.scrollHeight; }
+
+  // "rested" banners — show each side that has rested, once
+  ["plaintiff", "defendant"].forEach((seat) => {
+    if (s.rested[seat] && !restedShown[seat]) {
+      restedShown[seat] = true;
+      const name = s.seats[seat].name || (seat === "plaintiff" ? "Plaintiff" : "Defendant");
+      const who = seat === mySeat ? "You have" : `${name} has`;
+      const el = document.createElement("div");
+      el.className = "rested-banner";
+      el.textContent = `⚖ ${who} rested their case.`;
+      tr.appendChild(el);
+      tr.scrollTop = tr.scrollHeight;
+    }
+  });
 
   // summons: show only for host, only until defendant present
   const summons = $("summons-box");
@@ -187,17 +203,23 @@ function updateTrial(s) {
     $("say-input").focus();
   } else {
     const them = s.turn === "plaintiff" ? (s.seats.plaintiff.name || "Plaintiff") : (s.seats.defendant.name || "Defendant");
-    $("turn-line").textContent = `${them} is speaking…`;
+    const otherRested = s.rested[mySeat === "plaintiff" ? "defendant" : "plaintiff"];
+    $("turn-line").textContent = otherRested ? `${them} rested. Awaiting the court…` : `${them} is speaking…`;
     setComposerEnabled(false);
   }
   $("remaining").textContent = bothHere ? `${rem} statement${rem === 1 ? "" : "s"} left` : "";
 }
 
-function setJury(pPct) {
+function setJury(pPct, reason) {
   pPct = Math.max(0, Math.min(100, pPct));
   const fp = $("jb-fill-p"), fd = $("jb-fill-d"), needle = $("jb-needle");
   $("jb-p-pct").textContent = pPct + "%";
   $("jb-d-pct").textContent = (100 - pPct) + "%";
+  const reasonEl = $("jury-reason");
+  if (reasonEl && reason) {
+    if (reasonEl.textContent !== reason && !reduceMotion) animate(reasonEl, { opacity: [0.3, 1] }, { duration: 0.4 });
+    reasonEl.textContent = reason;
+  }
   if (reduceMotion) {
     fp.style.width = pPct + "%"; fd.style.width = (100 - pPct) + "%"; needle.style.left = pPct + "%";
     lastJuryP = pPct; return;
@@ -219,6 +241,7 @@ function animateGavel() {
 // ============ verdict (unchanged core) ============
 function renderVerdict(v) {
   verdictShown = true;
+  lastVerdict = v;
   if (v.dismissed) { show("dismissed"); $("dismissed-reason").textContent = v.reason; return; }
   show("verdict");
   $("vc-verdict-line").textContent = v.verdict_line;
@@ -263,5 +286,20 @@ function fillBar(fillEl, numEl, pct, delay) {
 // ============ nav ============
 ["new-case", "dismissed-new"].forEach((id) => { const b = $(id); if (b) b.addEventListener("click", () => (location.href = "/")); });
 $("share-verdict").addEventListener("click", async () => {
-  try { if (navigator.share) await navigator.share({ title: "The verdict is in", text: "The Petty Night Court has ruled.", url: location.origin }); else flash($("share-verdict"), "Screenshot it!"); } catch {}
+  if (!lastVerdict) return;
+  const v = lastVerdict;
+  const line = (name, p) => `${name}: ${p.pettiness.pct}% petty (${p.pettiness.label})`;
+  const text =
+    `⚖ THE PETTY NIGHT COURT RULES ⚖\n` +
+    `${v.verdict_line}\n` +
+    `Jury ${v.jury_confidence}% sure\n\n` +
+    `${line(v.plaintiff.name, v.plaintiff)}\n` +
+    `${line(v.defendant.name, v.defendant)}\n\n` +
+    `SENTENCE: ${v.sentence}\n` +
+    `$${v.damages} in emotional damages\n\n` +
+    `Argue your own case: ${location.origin}`;
+  try {
+    if (navigator.share) await navigator.share({ title: "The verdict is in", text });
+    else { await navigator.clipboard.writeText(text); flash($("share-verdict"), "Copied ruling!"); }
+  } catch {}
 });

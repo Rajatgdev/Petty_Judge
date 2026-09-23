@@ -444,3 +444,15 @@ body {
    visible screen, top-align the whole app column. */
 #app:has(.screen--trial:not([hidden])) { justify-content: flex-start; padding-top: 6vh; }
 .screen--trial { justify-content: flex-start; }
+
+/* jury reason + rested banner */
+.jurybar__reason {
+  font-family: var(--body); font-size: 12px; color: var(--brass);
+  text-align: center; margin: 8px 0 0; min-height: 1.2em; font-style: italic;
+}
+.rested-banner {
+  align-self: center; font-family: var(--body); font-size: 12px;
+  letter-spacing: 0.05em; color: var(--paper);
+  background: rgba(197,154,74,0.18); border: 1px solid rgba(197,154,74,0.4);
+  border-radius: 20px; padding: 6px 14px; margin: 2px 0;
+}

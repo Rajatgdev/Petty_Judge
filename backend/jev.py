@@ -181,6 +181,20 @@ async def score_round(transcript, plaintiff_name, defendant_name):
                 "even": "It is roughly even between them",
             },
         },
+        "reason": {
+            "type": "choice",
+            "instructions": (
+                "What best describes the MOST RECENT message's effect on the argument? "
+                f"'{plaintiff_name}' is the plaintiff, '{defendant_name}' is the defendant."
+            ),
+            "criteria": {
+                "strong_point": "The last message landed a strong, convincing point",
+                "sympathy": "The last message won sympathy or sounded reasonable",
+                "overreach": "The last message overreached, whined, or sounded petty",
+                "weak": "The last message was weak, evasive, or off-topic",
+                "escalation": "The last message escalated or got personal",
+            },
+        },
     }
     try:
         answers = _mock_answers(questions) if MOCK else await _call_jev(state, questions)
@@ -191,13 +205,28 @@ async def score_round(transcript, plaintiff_name, defendant_name):
         d = probs.get("defendant", 0.0) + probs.get("even", 0.0) / 2
         total = p + d or 1.0
         p_pct = round(100 * p / total)
+        last_seat = transcript[-1]["seat"] if transcript else "plaintiff"
+        last_name = plaintiff_name if last_seat == "plaintiff" else defendant_name
+        reason_key = answers.get("reason", {}).get("choice", "strong_point")
+        reason_text = _REASON_PHRASES.get(reason_key, "The jury weighs the argument.").format(name=last_name)
         return {
             "leaning": c["choice"],
             "plaintiff_pct": p_pct,
             "defendant_pct": 100 - p_pct,
+            "reason": reason_text,
         }
     except Exception:
-        return {"leaning": "even", "plaintiff_pct": 50, "defendant_pct": 50}
+        return {"leaning": "even", "plaintiff_pct": 50, "defendant_pct": 50,
+                "reason": "The jury is still weighing the argument."}
+
+
+_REASON_PHRASES = {
+    "strong_point": "{name} just landed a solid point.",
+    "sympathy": "{name} won the jury's sympathy.",
+    "overreach": "{name} overreached — the jury noticed.",
+    "weak": "{name}'s last point fell flat.",
+    "escalation": "{name} let it get personal.",
+}
 
 
 async def _call_jev(state, questions):
