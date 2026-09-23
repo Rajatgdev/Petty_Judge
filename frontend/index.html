@@ -4,29 +4,35 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Petty Judge — Night Court</title>
-<meta name="description" content="A small-claims court for petty disputes. State your case. Let the machine decide who's worse.">
+<meta name="description" content="A small-claims court for petty disputes. Argue your case. Let the machine decide who's worse.">
 <meta property="og:title" content="Petty Judge — Night Court">
-<meta property="og:description" content="Someone has filed a petty complaint against you. Enter the courtroom and state your case.">
+<meta property="og:description" content="Someone has filed a petty complaint against you. Enter the courtroom and argue your case.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="/og/lobby.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Petty Judge — Night Court">
-<meta name="twitter:description" content="A case awaits. State your side.">
+<meta name="twitter:description" content="A case awaits. Argue your side.">
 <meta name="twitter:image" content="/og/lobby.png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-<div class="grain" aria-hidden="true"></div>
+<!-- layered atmosphere: back wall, warm light pool, hanging seal, grain -->
+<div class="scene" aria-hidden="true">
+  <div class="scene__wall"></div>
+  <div class="scene__light"></div>
+  <div class="scene__seal">⚖</div>
+  <div class="scene__grain"></div>
+</div>
 
 <main id="app">
 
-  <!-- ============ SCREEN: LANDING ============ -->
+  <!-- ============ LANDING ============ -->
   <section class="screen screen--landing" data-screen="landing">
     <div class="masthead">
       <div class="seal" aria-hidden="true">
-        <svg viewBox="0 0 100 100" width="72" height="72">
+        <svg viewBox="0 0 100 100" width="64" height="64">
           <circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="2"/>
           <circle cx="50" cy="50" r="38" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 3"/>
           <path d="M50 28 L54 44 L50 40 L46 44 Z" fill="currentColor"/>
@@ -35,7 +41,7 @@
         </svg>
       </div>
       <h1 class="court-title">Petty Night Court</h1>
-      <p class="tagline">Small claims. Large egos. Instant verdicts.</p>
+      <p class="tagline">Small claims. Large egos. Live cross-examination.</p>
     </div>
 
     <div class="podium">
@@ -44,39 +50,69 @@
         <input id="host-name" class="input" type="text" maxlength="40" placeholder="e.g. Alex" autocomplete="off">
       </label>
       <label class="field">
-        <span class="field__label">State your complaint</span>
-        <textarea id="host-case" class="input input--area" maxlength="1500" rows="4" placeholder="They NEVER do the dishes and act like I'm the crazy one…"></textarea>
+        <span class="field__label">Open your complaint</span>
+        <textarea id="host-case" class="input input--area" maxlength="800" rows="4" placeholder="They NEVER do the dishes and act like I'm the crazy one…"></textarea>
       </label>
       <button id="file-case" class="btn btn--primary">File the case &amp; summon the accused</button>
-      <p class="fine-print">You'll get a link to send them. Two people, one verdict.</p>
+      <p class="fine-print">You'll get a link to send them. Then you argue it out — the jury swings live.</p>
     </div>
   </section>
 
-  <!-- ============ SCREEN: COURTROOM (both parties, fills in live) ============ -->
-  <section class="screen screen--courtroom" data-screen="courtroom" hidden>
-    <p class="docket" id="courtroom-docket">COURT IN SESSION</p>
-    <h2 class="screen__title">The courtroom</h2>
+  <!-- ============ JOIN (defendant) ============ -->
+  <section class="screen screen--join" data-screen="join" hidden>
+    <p class="docket">SUMMONS SERVED</p>
+    <h2 class="screen__title">You've been<br>summoned</h2>
+    <div class="accusation" id="accusation">
+      <p class="accusation__topic" id="accusation-topic">Reading the docket…</p>
+      <p class="accusation__label">THE CHARGE AGAINST YOU</p>
+      <p class="accusation__text" id="accusation-text">Reading the complaint…</p>
+    </div>
+    <label class="field">
+      <span class="field__label">Your name, for the record</span>
+      <input id="guest-name" class="input" type="text" maxlength="40" placeholder="e.g. Sam" autocomplete="off">
+    </label>
+    <button id="enter-court" class="btn btn--primary">Enter the courtroom</button>
+  </section>
 
-    <div class="bench">
-      <div class="bench__seal" aria-hidden="true">⚖</div>
-      <p class="bench__line" id="bench-line">Awaiting the accused. Hand them the summons.</p>
+  <!-- ============ TRIAL (the conversation) ============ -->
+  <section class="screen screen--trial" data-screen="trial" hidden>
+    <!-- jury meter with a swinging needle -->
+    <div class="jurybar">
+      <div class="jurybar__labels">
+        <span id="jb-p-name">Plaintiff</span>
+        <span class="jurybar__mid">THE JURY</span>
+        <span id="jb-d-name">Defendant</span>
+      </div>
+      <div class="jurybar__track">
+        <div class="jurybar__fill jurybar__fill--p" id="jb-fill-p"></div>
+        <div class="jurybar__fill jurybar__fill--d" id="jb-fill-d"></div>
+        <div class="jurybar__needle" id="jb-needle"></div>
+      </div>
+      <div class="jurybar__pcts">
+        <span id="jb-p-pct">50%</span>
+        <span id="jb-d-pct">50%</span>
+      </div>
     </div>
 
-    <div class="podiums">
-      <div class="podium-slot podium-slot--filled" id="slot-plaintiff">
-        <p class="podium-slot__role">PLAINTIFF</p>
-        <p class="podium-slot__name" id="cr-p-name">—</p>
-        <p class="podium-slot__status" id="cr-p-status">Present</p>
-      </div>
-      <div class="podium-slot podium-slot--empty" id="slot-defendant">
-        <p class="podium-slot__role">DEFENDANT</p>
-        <p class="podium-slot__name" id="cr-d-name">Empty seat</p>
-        <p class="podium-slot__status" id="cr-d-status">
-          <span class="dot-flicker" aria-hidden="true"><i></i><i></i><i></i></span> awaiting
-        </p>
+    <p class="case-topic" id="trial-topic"></p>
+
+    <!-- transcript -->
+    <div class="transcript" id="transcript"></div>
+
+    <!-- turn status + composer -->
+    <div class="composer" id="composer">
+      <p class="turn-line" id="turn-line">Waiting for the other party…</p>
+      <textarea id="say-input" class="input input--area" maxlength="800" rows="2" placeholder="Make your point…" disabled></textarea>
+      <div class="composer__row">
+        <span class="remaining" id="remaining"></span>
+        <div class="composer__btns">
+          <button id="rest-btn" class="btn btn--ghost btn--sm" disabled>Rest my case</button>
+          <button id="say-btn" class="btn btn--primary btn--sm" disabled>Submit</button>
+        </div>
       </div>
     </div>
 
+    <!-- summons (host only, until defendant joins) -->
     <div class="summons" id="summons-box">
       <p class="field__label">Summons — send this to the accused</p>
       <div class="summons__link" id="share-link" role="textbox" aria-readonly="true"></div>
@@ -84,27 +120,7 @@
     </div>
   </section>
 
-  <!-- ============ SCREEN: JOINING (defendant lands here) ============ -->
-  <section class="screen screen--join" data-screen="join" hidden>
-    <p class="docket">SUMMONS SERVED</p>
-    <h2 class="screen__title">You've been<br>summoned</h2>
-    <div class="accusation" id="accusation">
-      <p class="accusation__label">THE CHARGE AGAINST YOU</p>
-      <p class="accusation__text" id="accusation-text">Reading the complaint…</p>
-    </div>
-    <p class="screen__sub" id="join-sub">State your side before the court rules.</p>
-    <label class="field">
-      <span class="field__label">Your name, for the record</span>
-      <input id="guest-name" class="input" type="text" maxlength="40" placeholder="e.g. Sam" autocomplete="off">
-    </label>
-    <label class="field">
-      <span class="field__label">Your defense</span>
-      <textarea id="guest-case" class="input input--area" maxlength="1500" rows="4" placeholder="That's not what happened AT ALL…"></textarea>
-    </label>
-    <button id="enter-court" class="btn btn--primary">Enter the courtroom</button>
-  </section>
-
-  <!-- ============ SCREEN: DELIBERATING ============ -->
+  <!-- ============ DELIBERATING ============ -->
   <section class="screen screen--deliberating" data-screen="deliberating" hidden>
     <div class="gavel" aria-hidden="true">
       <svg viewBox="0 0 120 120" width="120" height="120">
@@ -119,26 +135,19 @@
     <p class="screen__sub">Weighing the pettiness. Filing the charges.</p>
   </section>
 
-  <!-- ============ SCREEN: VERDICT ============ -->
+  <!-- ============ VERDICT ============ -->
   <section class="screen screen--verdict" data-screen="verdict" hidden>
     <article class="verdict-card" id="verdict-card">
       <header class="vc__head">
         <div class="vc__seal" aria-hidden="true">⚖</div>
         <p class="vc__case" id="vc-case">CASE ██-PETTY</p>
       </header>
-
-      <div class="vc__stamp" id="vc-stamp">
-        <span id="vc-verdict-line">GUILTY</span>
-      </div>
-
+      <div class="vc__stamp" id="vc-stamp"><span id="vc-verdict-line">GUILTY</span></div>
       <div class="vc__jury">
         <p class="vc__jury-label">The jury is</p>
-        <div class="meter meter--jury">
-          <div class="meter__fill" id="jury-fill"></div>
-        </div>
+        <div class="meter meter--jury"><div class="meter__fill" id="jury-fill"></div></div>
         <p class="vc__jury-num"><span id="jury-num">0</span>% sure</p>
       </div>
-
       <div class="vc__parties">
         <div class="party" id="party-plaintiff">
           <p class="party__name" id="p-name">Plaintiff</p>
@@ -155,18 +164,15 @@
           <ul class="charges" id="d-charges"></ul>
         </div>
       </div>
-
       <div class="vc__sentence">
         <p class="vc__sentence-label">SENTENCE</p>
         <p id="vc-sentence"></p>
       </div>
-
       <footer class="vc__foot">
         <span id="vc-damages">$0 in emotional damages</span>
         <span class="vc__brand">PETTY NIGHT COURT</span>
       </footer>
     </article>
-
     <div class="verdict-actions">
       <button id="share-verdict" class="btn btn--brass">Share the ruling</button>
       <button id="new-case" class="btn btn--ghost">File a new case</button>
@@ -174,7 +180,7 @@
     <p class="fine-print">Screenshot the ruling and drop it in the group chat.</p>
   </section>
 
-  <!-- ============ SCREEN: DISMISSED / DEAD ROOM ============ -->
+  <!-- ============ DISMISSED ============ -->
   <section class="screen screen--dismissed" data-screen="dismissed" hidden>
     <div class="vc__stamp vc__stamp--dismiss"><span>DISMISSED</span></div>
     <p class="screen__sub" id="dismissed-reason">This case has been thrown out.</p>

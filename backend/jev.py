@@ -146,6 +146,60 @@ def _build_questions(plaintiff_name, defendant_name):
     return q
 
 
+def _transcript_text(transcript, plaintiff_name, defendant_name):
+    """Render the running transcript as plain text for Jev's state."""
+    lines = []
+    for m in transcript:
+        who = plaintiff_name if m["seat"] == "plaintiff" else defendant_name
+        lines.append(f"{who}: {m['text']}")
+    return "\n".join(lines)
+
+
+async def score_round(transcript, plaintiff_name, defendant_name):
+    """
+    Lightweight 'who is winning right now' after each message. ONE Choice, cheap,
+    called every turn to drive the live jury bar. Returns:
+      {"leaning": "plaintiff"|"defendant"|"even", "plaintiff_pct": int, "defendant_pct": int}
+    plaintiff_pct + defendant_pct = 100. Never raises; on failure returns an even split.
+    """
+    state = {
+        "dispute": _transcript_text(transcript, plaintiff_name, defendant_name),
+        "plaintiff": plaintiff_name,
+        "defendant": defendant_name,
+    }
+    questions = {
+        "leaning": {
+            "type": "choice",
+            "instructions": (
+                f"Based on the argument so far, which side is currently more convincing "
+                f"and sympathetic? '{plaintiff_name}' is the plaintiff, '{defendant_name}' "
+                f"is the defendant."
+            ),
+            "criteria": {
+                "plaintiff": f"{plaintiff_name} is currently more convincing",
+                "defendant": f"{defendant_name} is currently more convincing",
+                "even": "It is roughly even between them",
+            },
+        },
+    }
+    try:
+        answers = _mock_answers(questions) if MOCK else await _call_jev(state, questions)
+        c = answers["leaning"]
+        probs = c.get("probabilities", {})
+        # Map the three-way distribution to a two-sided bar. 'even' mass splits evenly.
+        p = probs.get("plaintiff", 0.0) + probs.get("even", 0.0) / 2
+        d = probs.get("defendant", 0.0) + probs.get("even", 0.0) / 2
+        total = p + d or 1.0
+        p_pct = round(100 * p / total)
+        return {
+            "leaning": c["choice"],
+            "plaintiff_pct": p_pct,
+            "defendant_pct": 100 - p_pct,
+        }
+    except Exception:
+        return {"leaning": "even", "plaintiff_pct": 50, "defendant_pct": 50}
+
+
 async def _call_jev(state, questions):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -203,16 +257,27 @@ def _mock_answers(questions):
     return ans
 
 
-async def judge_case(plaintiff, defendant):
+async def judge_case(plaintiff, defendant, transcript=None):
     """
-    plaintiff, defendant: dicts with 'name' and 'case' (their statement).
-    Returns a fully-assembled verdict dict ready for the frontend, or a
-    'dismissed' dict if the safety guard trips.
+    plaintiff, defendant: dicts with 'name' and 'case' (their opening statement).
+    transcript: optional list of {"seat","text"} — the full back-and-forth. When
+    present, each side's combined remarks are judged, not just the opener.
+    Returns a fully-assembled verdict dict, or a 'dismissed' dict if the guard trips.
     """
+    # Fold the whole conversation into each side's statement so the existing
+    # question set judges the full argument, not just the opener.
+    if transcript:
+        p_lines = [m["text"] for m in transcript if m["seat"] == "plaintiff"]
+        d_lines = [m["text"] for m in transcript if m["seat"] == "defendant"]
+        p_case = "\n".join(p_lines) or plaintiff["case"]
+        d_case = "\n".join(d_lines) or defendant["case"]
+    else:
+        p_case, d_case = plaintiff["case"], defendant["case"]
+
     questions = _build_questions(plaintiff["name"], defendant["name"])
     state = {
-        "plaintiff": {"name": plaintiff["name"], "statement": plaintiff["case"]},
-        "defendant": {"name": defendant["name"], "statement": defendant["case"]},
+        "plaintiff": {"name": plaintiff["name"], "statement": p_case},
+        "defendant": {"name": defendant["name"], "statement": d_case},
     }
 
     answers = _mock_answers(questions) if MOCK else await _call_jev(state, questions)

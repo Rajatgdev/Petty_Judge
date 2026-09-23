@@ -1,9 +1,9 @@
 """
 Petty Judge — backend (Railway).
 
-Pure API + WebSocket. The frontend is a separate static app on Vercel, so this
-service only: creates rooms, pairs two people over a WebSocket, runs the batched
-Jev call, and broadcasts the verdict. No HTML, no static files.
+Pure API + WebSocket. Pairs two people, runs a turn-based dispute (plaintiff
+opens, strict alternation, capped turns), re-scores the jury after each message,
+and renders the final verdict when the argument is over.
 
 CORS is restricted to the frontend origin(s) in FRONTEND_ORIGIN (comma-separated).
 """
@@ -15,15 +15,12 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from rooms import manager
-from jev import judge_case
+from rooms import manager, MAX_MESSAGES
+from jev import judge_case, score_round
 from summary import summarise_complaint
 
 app = FastAPI(title="Petty Judge API")
 
-# Which frontend origins may call this API. Set FRONTEND_ORIGIN on Railway to
-# your Vercel URL, e.g. "https://petty-judge.vercel.app". Comma-separate to allow
-# more than one (production + preview). Defaults to localhost for dev.
 _origins = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
 ALLOWED_ORIGINS = [o.strip() for o in _origins.split(",") if o.strip()]
 
@@ -36,7 +33,7 @@ app.add_middleware(
 )
 
 MAX_NAME = 40
-MAX_CASE = 1500
+MAX_MSG = 800  # per message
 
 
 @app.get("/api/health")
@@ -59,6 +56,38 @@ async def _broadcast(room):
                 await sock.send_text(msg)
             except Exception:
                 pass
+
+
+async def _run_final_verdict(room):
+    room.judging = True
+    await _broadcast(room)
+    try:
+        verdict = await judge_case(
+            {"name": room.seats["plaintiff"]["name"] or "The Plaintiff",
+             "case": _first_text(room, "plaintiff")},
+            {"name": room.seats["defendant"]["name"] or "The Defendant",
+             "case": _first_text(room, "defendant")},
+            transcript=room.transcript,
+        )
+    except Exception as e:
+        room.judging = False
+        await _broadcast(room)
+        for s in ("plaintiff", "defendant"):
+            sk = room.sockets[s]
+            if sk:
+                await sk.send_text(json.dumps(
+                    {"t": "error", "code": "judge_failed", "detail": str(e)[:200]}))
+        return
+    room.verdict = verdict
+    room.judging = False
+    await _broadcast(room)
+
+
+def _first_text(room, seat):
+    for m in room.transcript:
+        if m["seat"] == seat:
+            return m["text"]
+    return ""
 
 
 @app.websocket("/ws/rooms/{room_id}")
@@ -88,48 +117,55 @@ async def room_ws(ws: WebSocket, room_id: str):
                 continue
             t = msg.get("t")
 
-            if t == "submit":
-                name = str(msg.get("name", "")).strip()[:MAX_NAME] or (
-                    "The Plaintiff" if seat == "plaintiff" else "The Defendant")
-                case = str(msg.get("case", "")).strip()[:MAX_CASE]
-                if not case:
-                    await ws.send_text(json.dumps({"t": "error", "code": "empty_case"}))
-                    continue
-                room.seats[seat]["name"] = name
-                room.seats[seat]["case"] = case
-                room.seats[seat]["submitted"] = True
-
-                # When the plaintiff files, summarise the complaint so the
-                # defendant sees the topic when they open the link. Best-effort:
-                # summarise_complaint never raises, so a failure just leaves the
-                # generic fallback and the flow is unaffected.
-                if seat == "plaintiff" and not room.summary:
-                    room.summary = await summarise_complaint(name, case)
-
+            if t == "join":
+                # register display name (does not consume a turn)
+                name = str(msg.get("name", "")).strip()[:MAX_NAME]
+                if name:
+                    room.seats[seat]["name"] = name
                 await _broadcast(room)
 
-                if room.both_submitted() and not room.judging and not room.verdict:
-                    room.judging = True
-                    await _broadcast(room)
-                    try:
-                        verdict = await judge_case(
-                            room.seats["plaintiff"], room.seats["defendant"])
-                    except Exception as e:
-                        room.judging = False
-                        await _broadcast(room)
-                        for s in ("plaintiff", "defendant"):
-                            sk = room.sockets[s]
-                            if sk:
-                                await sk.send_text(json.dumps(
-                                    {"t": "error", "code": "judge_failed",
-                                     "detail": str(e)[:200]}))
-                        continue
-                    room.verdict = verdict
-                    room.judging = False
-                    await _broadcast(room)
+            elif t == "say":
+                if not room.can_speak(seat):
+                    await ws.send_text(json.dumps({"t": "error", "code": "not_your_turn"}))
+                    continue
+                text = str(msg.get("text", "")).strip()[:MAX_MSG]
+                if not text:
+                    await ws.send_text(json.dumps({"t": "error", "code": "empty"}))
+                    continue
+
+                # record the turn
+                room.transcript.append({"seat": seat, "text": text})
+                room.counts[seat] += 1
+
+                # the plaintiff's first line generates the topic/accusation brief
+                if seat == "plaintiff" and room.counts["plaintiff"] == 1 and not room.summary:
+                    room.summary = await summarise_complaint(
+                        room.seats["plaintiff"]["name"] or "The Plaintiff", text)
+
+                # re-score the jury over the transcript so far (live bar)
+                room.jury = await score_round(
+                    room.transcript,
+                    room.seats["plaintiff"]["name"] or "The Plaintiff",
+                    room.seats["defendant"]["name"] or "The Defendant",
+                )
+
+                # hand off the turn, then check if the argument is over
+                room.advance_turn()
+                await _broadcast(room)
+
+                if room.is_over() and not room.verdict and not room.judging:
+                    await _run_final_verdict(room)
+
+            elif t == "rest":
+                # rest your case — you forfeit your remaining turns
+                room.rested[seat] = True
+                room.advance_turn()
+                await _broadcast(room)
+                if room.is_over() and not room.verdict and not room.judging:
+                    await _run_final_verdict(room)
 
             elif t == "typing":
-                other = "defendant" if seat == "plaintiff" else "plaintiff"
+                other = room.other(seat)
                 sk = room.sockets[other]
                 if sk:
                     await sk.send_text(json.dumps({"t": "opponent_typing"}))

@@ -2,37 +2,46 @@
 Complaint summariser (OpenAI) for Petty Judge.
 
 The ONLY place an LLM is used. Jev handles every decision; this just turns the
-plaintiff's complaint into one plain sentence so the defendant knows what
-they're accused of before they respond. Quarantined here so the Jev path stays
-pure and a summary failure can never block a verdict.
+plaintiff's complaint into a short brief so the defendant knows what they're
+accused of before they respond. Quarantined here so the Jev path stays pure and
+a summary failure can never block a verdict.
+
+Returns a dict: {"topic": str, "accusation": str}
+  topic      — a 2-5 word case title, e.g. "The Missing Leftovers"
+  accusation — one neutral sentence telling the defendant what they're accused of
 
 Set OPENAI_API_KEY in the backend env. If it's missing or the call fails, we
-fall back to a neutral line — the app keeps working, the defendant just gets a
-generic heads-up instead of a specific one.
+fall back to neutral text — the app keeps working.
 """
 
+import json
 import os
 import httpx
 
 OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "")
 SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "gpt-4o-mini")
-FALLBACK = "You've been accused in a petty dispute. Read the room and state your side."
+
+FALLBACK = {
+    "topic": "A Petty Dispute",
+    "accusation": "You've been accused in a petty dispute. Read the room and state your side.",
+}
 
 
-async def summarise_complaint(plaintiff_name: str, complaint: str) -> str:
-    """One neutral sentence telling the defendant what the dispute is about.
-    Never raises — returns the fallback on any problem."""
+async def summarise_complaint(plaintiff_name: str, complaint: str) -> dict:
+    """Topic + accusation for the defendant. Never raises — returns FALLBACK on any problem."""
     text = (complaint or "").strip()
     if not text or not OPENAI_KEY:
-        return FALLBACK
+        return dict(FALLBACK)
 
     system = (
-        "You summarise a petty interpersonal complaint in ONE short, neutral "
-        "sentence (max 25 words) so the accused knows the topic. Do not take "
-        "sides, do not judge, do not name a winner. Address the accused as 'You'. "
-        "Keep it light and plain. No preamble, just the sentence."
+        "You brief the accused in a playful small-claims court. Given a complaint, "
+        "return STRICT JSON with two keys and nothing else:\n"
+        '  "topic": a 2-5 word case title in title case (e.g. "The Missing Leftovers")\n'
+        '  "accusation": ONE short neutral sentence (max 25 words) telling the accused '
+        "what they're accused of, addressed as 'You'. Do not take sides or judge.\n"
+        "Return only the JSON object."
     )
-    user = f"The complaint (from {plaintiff_name}):\n\n{text[:1200]}"
+    user = f"Complaint from {plaintiff_name}:\n\n{text[:1200]}"
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -48,13 +57,17 @@ async def summarise_complaint(plaintiff_name: str, complaint: str) -> str:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    "max_tokens": 60,
-                    "temperature": 0.4,
+                    "max_tokens": 120,
+                    "temperature": 0.5,
+                    "response_format": {"type": "json_object"},
                 },
             )
-        if r.status_code == 200:
-            out = r.json()["choices"][0]["message"]["content"].strip()
-            return out or FALLBACK
-        return FALLBACK
+        if r.status_code != 200:
+            return dict(FALLBACK)
+        raw = r.json()["choices"][0]["message"]["content"].strip()
+        data = json.loads(raw)
+        topic = str(data.get("topic", "")).strip() or FALLBACK["topic"]
+        accusation = str(data.get("accusation", "")).strip() or FALLBACK["accusation"]
+        return {"topic": topic[:60], "accusation": accusation[:300]}
     except Exception:
-        return FALLBACK
+        return dict(FALLBACK)

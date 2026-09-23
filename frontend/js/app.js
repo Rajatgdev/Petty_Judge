@@ -1,11 +1,9 @@
 import { connectRoom } from "/js/socket.js";
 import { animate } from "https://cdn.jsdelivr.net/npm/motion@11/+esm";
 
-// Backend base URL (Railway). Injected at build time by Vite from VITE_API_BASE.
-// Falls back to same-origin for the single-origin dev case.
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
-// ---------- tiny helpers ----------
+// ---------- helpers ----------
 const $ = (id) => document.getElementById(id);
 const screens = {};
 document.querySelectorAll("[data-screen]").forEach((el) => screens[el.dataset.screen] = el);
@@ -14,20 +12,23 @@ function show(name) {
   screens[name].hidden = false;
 }
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function flash(btn, text) { const o = btn.textContent; btn.textContent = text; setTimeout(() => (btn.textContent = o), 1400); }
 
-// ---------- app state ----------
-let room = null;      // socket handle
-let mySeat = null;    // 'plaintiff' | 'defendant'
+// ---------- state ----------
+let room = null;
+let mySeat = null;
 let roomId = null;
-let submitted = false;
+let joined = false;         // sent our name
 let verdictShown = false;
+let renderedCount = 0;      // transcript messages already drawn
+let lastJuryP = 50;
 
-// Room id from the path? Then we're the defendant joining.
 const pathMatch = location.pathname.match(/^\/r\/([A-Za-z0-9_-]+)$/);
 
-// ============================================================
-// FLOW A — host lands on "/" and files a case
-// ============================================================
+// ============ FLOW A: host files ============
 $("file-case").addEventListener("click", async () => {
   const name = $("host-name").value.trim();
   const kase = $("host-case").value.trim();
@@ -37,255 +38,230 @@ $("file-case").addEventListener("click", async () => {
   const { room_id } = await res.json();
   roomId = room_id;
 
-  // remember our statement to submit once the socket opens
-  pendingSubmit = { name, case: kase };
-
   const link = `${location.origin}/r/${room_id}`;
   $("share-link").textContent = link;
   history.replaceState({}, "", `/r/${room_id}`);
-  // fill our own podium immediately
-  $("cr-p-name").textContent = name || "The Plaintiff";
-  show("courtroom");
+
+  pendingName = name || "The Plaintiff";
+  pendingOpening = kase;     // plaintiff's first line, sent once seated
+  show("trial");
   joinRoom(room_id);
 });
 
-// copy summons
 $("copy-link").addEventListener("click", async () => {
   const link = `${location.origin}/r/${roomId}`;
   try {
-    if (navigator.share) { await navigator.share({ title: "You've been summoned", text: "Petty Night Court is in session. State your case:", url: link }); }
+    if (navigator.share) await navigator.share({ title: "You've been summoned", text: "Petty Night Court is in session. Argue your case:", url: link });
     else { await navigator.clipboard.writeText(link); flash($("copy-link"), "Copied"); }
-  } catch { /* user cancelled share — fine */ }
+  } catch {}
 });
 
-// ============================================================
-// FLOW B — defendant lands on "/r/<id>"
-// ============================================================
+// ============ FLOW B: defendant lands on /r/<id> ============
 if (pathMatch) {
   roomId = pathMatch[1];
   show("join");
-  // Connect right away (before submitting) so we receive the room_state that
-  // carries the AI summary of what we're accused of.
-  joinRoom(roomId);
+  joinRoom(roomId); // connect early to receive the accusation brief
 
   $("enter-court").addEventListener("click", () => {
     const name = $("guest-name").value.trim();
-    const kase = $("guest-case").value.trim();
-    if (!kase) { $("guest-case").focus(); return; }
-    // fill our own podium, then submit over the already-open socket
-    $("cr-d-name").textContent = name || "The Defendant";
-    pendingSubmit = { name, case: kase };
-    if (room && !submitted) { room.send({ t: "submit", ...pendingSubmit }); submitted = true; }
-    show("courtroom");
+    pendingName = name || "The Defendant";
+    if (room) room.send({ t: "join", name: pendingName });
+    joined = true;
+    show("trial");
   });
 }
 
-// ============================================================
-// shared: join room over websocket
-// ============================================================
-let pendingSubmit = null;
+// ============ shared socket ============
+let pendingName = null;
+let pendingOpening = null;
 
 function joinRoom(id) {
   room = connectRoom(id, API_BASE, {
     onOpen() {
-      if (pendingSubmit && !submitted) {
-        room.send({ t: "submit", ...pendingSubmit });
-        submitted = true;
-      }
+      if (pendingName && !joined) { room.send({ t: "join", name: pendingName }); joined = true; }
+      // plaintiff's opening line is their first turn
+      if (pendingOpening) { room.send({ t: "say", text: pendingOpening }); pendingOpening = null; }
     },
-    onMessage(msg) { handle(msg); },
+    onMessage: handle,
     onReconnecting() {
-      const bench = $("bench-line");
-      if (bench && !verdictShown) bench.textContent = "Reconnecting to chambers…";
+      const tl = $("turn-line");
+      if (tl && !verdictShown) tl.textContent = "Reconnecting to chambers…";
     },
   });
 }
 
+// ============ composer ============
+$("say-btn").addEventListener("click", sendSay);
+$("say-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sendSay();
+});
+$("rest-btn").addEventListener("click", () => { if (room) room.send({ t: "rest" }); });
+
+function sendSay() {
+  const el = $("say-input");
+  const text = el.value.trim();
+  if (!text || !room) return;
+  room.send({ t: "say", text });
+  el.value = "";
+  setComposerEnabled(false); // optimistic lock until server confirms next turn
+}
+
+function setComposerEnabled(on) {
+  $("say-input").disabled = !on;
+  $("say-btn").disabled = !on;
+  $("rest-btn").disabled = !on;
+}
+
+// ============ message handling ============
 function handle(msg) {
   if (msg.t === "seat") { mySeat = msg.seat; return; }
 
   if (msg.t === "error") {
-    if (msg.code === "full") { show("dismissed"); $("dismissed-reason").textContent = "This courtroom already has two parties. The gallery is closed."; }
-    else if (msg.code === "no_room") { show("dismissed"); $("dismissed-reason").textContent = "This case has expired or was never filed."; }
-    else if (msg.code === "judge_failed") { show("dismissed"); $("dismissed-reason").textContent = "The court could not reach a ruling. Try filing again."; }
+    const map = {
+      full: "This courtroom already has two parties. The gallery is closed.",
+      no_room: "This case has expired or was never filed.",
+      judge_failed: "The court could not reach a ruling. Try filing again.",
+      not_your_turn: null, empty: null,
+    };
+    if (map[msg.code]) { show("dismissed"); $("dismissed-reason").textContent = map[msg.code]; }
     return;
   }
 
-  if (msg.t === "room_state") {
-    const s = msg.state;
+  if (msg.t !== "room_state") return;
+  const s = msg.state;
 
-    // Defendant, still on the join screen: show what they're accused of.
-    if (s.summary && !submitted) {
-      const el = $("accusation-text");
-      if (el) el.textContent = s.summary;
-    }
-
-    if (s.verdict && !verdictShown) { renderVerdict(s.verdict); return; }
-    if (s.judging && !verdictShown) { show("deliberating"); animateGavel(); return; }
-
-    // Keep the courtroom podiums in sync with who's present + submitted.
-    updateCourtroom(s);
+  // defendant's accusation brief (join screen)
+  if (s.summary && !joined) {
+    $("accusation-topic").textContent = s.summary.topic || "";
+    $("accusation-text").textContent = s.summary.accusation || "";
   }
+
+  if (s.verdict && !verdictShown) { renderVerdict(s.verdict); return; }
+  if (s.judging && !verdictShown) { show("deliberating"); animateGavel(); return; }
+
+  updateTrial(s);
 }
 
-function updateCourtroom(s) {
+function updateTrial(s) {
   if (verdictShown) return;
-  const p = s.seats.plaintiff, d = s.seats.defendant;
 
-  if (p && p.name) $("cr-p-name").textContent = p.name;
-  if (d && d.name) $("cr-d-name").textContent = d.name;
+  // names on the jury bar
+  $("jb-p-name").textContent = s.seats.plaintiff.name || "Plaintiff";
+  $("jb-d-name").textContent = s.seats.defendant.name || "Defendant";
+  if (s.summary && s.summary.topic) $("trial-topic").textContent = s.summary.topic;
 
-  // plaintiff status
-  $("cr-p-status").textContent = p && p.submitted ? "Case filed" : (p && p.present ? "Present" : "Away");
+  // jury bar
+  setJury(s.jury.plaintiff_pct);
 
-  // defendant slot flips from empty to filled when they arrive
-  const dSlot = $("slot-defendant");
-  if (d && d.present) {
-    dSlot.classList.remove("podium-slot--empty");
-    dSlot.classList.add("podium-slot--filled");
-    if (!d.name) $("cr-d-name").textContent = "The Defendant";
-    $("cr-d-status").textContent = d.submitted ? "Defense filed" : "Present, preparing…";
-  } else {
-    dSlot.classList.add("podium-slot--empty");
-    dSlot.classList.remove("podium-slot--filled");
-    $("cr-d-name").textContent = "Empty seat";
-    $("cr-d-status").innerHTML = '<span class="dot-flicker" aria-hidden="true"><i></i><i></i><i></i></span> awaiting';
+  // transcript — append only new messages
+  const tr = $("transcript");
+  for (let i = renderedCount; i < s.transcript.length; i++) {
+    const m = s.transcript[i];
+    const who = m.seat === "plaintiff" ? (s.seats.plaintiff.name || "Plaintiff") : (s.seats.defendant.name || "Defendant");
+    const el = document.createElement("div");
+    el.className = "msg " + (m.seat === mySeat ? "msg--me" : "msg--them") + " msg--" + m.seat;
+    el.innerHTML = `<span class="msg__who">${escapeHtml(who)}</span><p class="msg__text">${escapeHtml(m.text)}</p>`;
+    tr.appendChild(el);
+    if (!reduceMotion) { el.style.opacity = 0; animate(el, { opacity: [0, 1], y: [8, 0] }, { duration: 0.35 }); }
   }
+  if (s.transcript.length !== renderedCount) { renderedCount = s.transcript.length; tr.scrollTop = tr.scrollHeight; }
 
-  // bench line + hide the summons once the defendant is present
-  const bench = $("bench-line");
+  // summons: show only for host, only until defendant present
   const summons = $("summons-box");
-  if (d && d.present) {
-    if (summons) summons.style.display = "none";
-    if (bench) bench.textContent = (p && p.submitted && d.submitted)
-      ? "Both statements are in. Approaching the bench…"
-      : "Both parties present. Awaiting statements…";
+  if (summons) summons.style.display = (mySeat === "plaintiff" && !s.seats.defendant.present) ? "" : "none";
+
+  // turn + composer
+  const bothHere = s.seats.plaintiff.present && s.seats.defendant.present;
+  const myTurn = s.turn === mySeat && !s.rested[mySeat] && s.remaining[mySeat] > 0;
+  const rem = s.remaining[mySeat];
+
+  if (!bothHere) {
+    $("turn-line").textContent = mySeat === "plaintiff" ? "Awaiting the accused…" : "Awaiting the plaintiff…";
+    setComposerEnabled(false);
+  } else if (s.rested[mySeat] || s.remaining[mySeat] === 0) {
+    $("turn-line").textContent = "Your case rests. Awaiting the other party…";
+    setComposerEnabled(false);
+  } else if (myTurn) {
+    $("turn-line").textContent = "The floor is yours.";
+    setComposerEnabled(true);
+    $("say-input").focus();
   } else {
-    if (summons) summons.style.display = "";
-    if (bench) bench.textContent = "Awaiting the accused. Hand them the summons.";
+    const them = s.turn === "plaintiff" ? (s.seats.plaintiff.name || "Plaintiff") : (s.seats.defendant.name || "Defendant");
+    $("turn-line").textContent = `${them} is speaking…`;
+    setComposerEnabled(false);
   }
+  $("remaining").textContent = bothHere ? `${rem} statement${rem === 1 ? "" : "s"} left` : "";
 }
 
-// ============================================================
-// animations
-// ============================================================
+function setJury(pPct) {
+  pPct = Math.max(0, Math.min(100, pPct));
+  const fp = $("jb-fill-p"), fd = $("jb-fill-d"), needle = $("jb-needle");
+  $("jb-p-pct").textContent = pPct + "%";
+  $("jb-d-pct").textContent = (100 - pPct) + "%";
+  if (reduceMotion) {
+    fp.style.width = pPct + "%"; fd.style.width = (100 - pPct) + "%"; needle.style.left = pPct + "%";
+    lastJuryP = pPct; return;
+  }
+  fp.style.width = pPct + "%"; fd.style.width = (100 - pPct) + "%";
+  // needle swings with a spring from its last position
+  animate(needle, { left: [lastJuryP + "%", pPct + "%"] }, { type: "spring", stiffness: 90, damping: 12 });
+  lastJuryP = pPct;
+}
+
+// ============ animations ============
 function animateGavel() {
   if (reduceMotion) return;
   const g = document.querySelector(".gavel");
   if (!g) return;
-  animate(g, { rotate: [0, -18, 6, -18, 6, 0], y: [0, 0, 4, 0, 4, 0] },
-    { duration: 1.4, repeat: Infinity, ease: "easeInOut" });
+  animate(g, { rotate: [0, -18, 6, -18, 6, 0], y: [0, 0, 4, 0, 4, 0] }, { duration: 1.4, repeat: Infinity, ease: "easeInOut" });
 }
 
-function flash(btn, text) {
-  const old = btn.textContent;
-  btn.textContent = text;
-  setTimeout(() => (btn.textContent = old), 1400);
-}
-
-// ============================================================
-// verdict rendering
-// ============================================================
+// ============ verdict (unchanged core) ============
 function renderVerdict(v) {
   verdictShown = true;
-
-  if (v.dismissed) {
-    show("dismissed");
-    $("dismissed-reason").textContent = v.reason;
-    return;
-  }
-
+  if (v.dismissed) { show("dismissed"); $("dismissed-reason").textContent = v.reason; return; }
   show("verdict");
-
   $("vc-verdict-line").textContent = v.verdict_line;
   $("p-name").textContent = v.plaintiff.name;
   $("d-name").textContent = v.defendant.name;
   $("vc-sentence").textContent = v.sentence;
   $("vc-damages").textContent = `$${v.damages} in emotional damages`;
   $("vc-case").textContent = `CASE ${roomId.slice(0, 6).toUpperCase()}-PETTY`;
-
   $("p-petty-label").textContent = v.plaintiff.pettiness.label;
   $("d-petty-label").textContent = v.defendant.pettiness.label;
-
-  // guilty highlight
   if (v.winner === "plaintiff" || v.winner === "both_equally") $("party-plaintiff").classList.add("party--guilty");
   if (v.winner === "defendant" || v.winner === "both_equally") $("party-defendant").classList.add("party--guilty");
-
   renderCharges($("p-charges"), v.plaintiff.charges);
   renderCharges($("d-charges"), v.defendant.charges);
-
-  // --- orchestrated reveal ---
   if (reduceMotion) {
-    setFill($("jury-fill"), v.jury_confidence);
-    setFill($("p-petty-fill"), v.plaintiff.pettiness.pct);
-    setFill($("d-petty-fill"), v.defendant.pettiness.pct);
-    $("jury-num").textContent = v.jury_confidence;
-    $("p-petty-num").textContent = v.plaintiff.pettiness.pct;
-    $("d-petty-num").textContent = v.defendant.pettiness.pct;
+    setFill($("jury-fill"), v.jury_confidence); setFill($("p-petty-fill"), v.plaintiff.pettiness.pct); setFill($("d-petty-fill"), v.defendant.pettiness.pct);
+    $("jury-num").textContent = v.jury_confidence; $("p-petty-num").textContent = v.plaintiff.pettiness.pct; $("d-petty-num").textContent = v.defendant.pettiness.pct;
     return;
   }
-
-  // stamp thwack
-  const stamp = $("vc-stamp");
-  animate(stamp, { scale: [2.4, 0.9, 1.06, 1], rotate: [-14, -4, -4, -4], opacity: [0, 1, 1, 1] },
-    { duration: 0.5, ease: "easeOut" });
-
-  // bars fill with a slight settle, staggered
+  animate($("vc-stamp"), { scale: [2.4, 0.9, 1.06, 1], rotate: [-14, -4, -4, -4], opacity: [0, 1, 1, 1] }, { duration: 0.5, ease: "easeOut" });
   fillBar($("jury-fill"), $("jury-num"), v.jury_confidence, 0.5);
   fillBar($("p-petty-fill"), $("p-petty-num"), v.plaintiff.pettiness.pct, 0.7);
   fillBar($("d-petty-fill"), $("d-petty-num"), v.defendant.pettiness.pct, 0.85);
 }
-
 function renderCharges(ul, charges) {
   ul.innerHTML = "";
-  if (!charges.length) {
-    const li = document.createElement("li");
-    li.className = "charges--clean";
-    li.textContent = "No charges filed. Suspiciously clean.";
-    ul.appendChild(li);
-    return;
-  }
+  if (!charges.length) { const li = document.createElement("li"); li.className = "charges--clean"; li.textContent = "No charges filed. Suspiciously clean."; ul.appendChild(li); return; }
   charges.forEach((c, i) => {
-    const li = document.createElement("li");
-    li.className = "charge";
+    const li = document.createElement("li"); li.className = "charge";
     li.innerHTML = `<span>${escapeHtml(c.label)}</span><span class="charge__prob">${Math.round(c.probability * 100)}%</span>`;
     ul.appendChild(li);
-    if (!reduceMotion) {
-      li.style.opacity = 0;
-      animate(li, { opacity: [0, 1], x: [-8, 0] }, { duration: 0.3, delay: 1 + i * 0.12 });
-    }
+    if (!reduceMotion) { li.style.opacity = 0; animate(li, { opacity: [0, 1], x: [-8, 0] }, { duration: 0.3, delay: 1 + i * 0.12 }); }
   });
 }
-
 function setFill(el, pct) { el.style.width = pct + "%"; }
-
 function fillBar(fillEl, numEl, pct, delay) {
-  // animate width via scaleX for smoothness, then lock width
   animate(fillEl, { width: ["0%", pct + "%"] }, { duration: 0.9, delay, ease: [0.22, 1, 0.36, 1] });
-  // count the number up
   const obj = { n: 0 };
-  animate(obj, { n: pct }, {
-    duration: 0.9, delay, ease: "easeOut",
-    onUpdate: () => (numEl.textContent = Math.round(obj.n)),
-  });
+  animate(obj, { n: pct }, { duration: 0.9, delay, ease: "easeOut", onUpdate: () => (numEl.textContent = Math.round(obj.n)) });
 }
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-// ============================================================
-// new case buttons
-// ============================================================
-["new-case", "dismissed-new"].forEach((id) => {
-  const btn = $(id);
-  if (btn) btn.addEventListener("click", () => { location.href = "/"; });
-});
-
-// share verdict = screenshot hint (native share of the URL)
+// ============ nav ============
+["new-case", "dismissed-new"].forEach((id) => { const b = $(id); if (b) b.addEventListener("click", () => (location.href = "/")); });
 $("share-verdict").addEventListener("click", async () => {
-  try {
-    if (navigator.share) await navigator.share({ title: "The verdict is in", text: "The Petty Night Court has ruled.", url: location.origin });
-    else flash($("share-verdict"), "Screenshot it!");
-  } catch {}
+  try { if (navigator.share) await navigator.share({ title: "The verdict is in", text: "The Petty Night Court has ruled.", url: location.origin }); else flash($("share-verdict"), "Screenshot it!"); } catch {}
 });
